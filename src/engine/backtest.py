@@ -33,6 +33,7 @@ class Trade:
     quantity: int
     cost: float
     cash_after: float
+    symbol: str = ""  # unset for single-symbol backtests, where it's implied
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,7 @@ class BacktestResult:
     trades: list[Trade]
 
 
-def _max_affordable_quantity(cash: float, price: float, cost_model: CostModel) -> int:
+def max_affordable_quantity(cash: float, price: float, cost_model: CostModel) -> int:
     """Largest whole-share quantity whose price + buy-side costs fit in
     cash. Trading costs are a function of quantity (flat fees, GST), so
     this can't be solved in closed form -- decrement from the naive upper
@@ -87,7 +88,7 @@ def run_backtest(
 
         if desired == 1 and shares == 0:
             exec_price = slippage_model.apply(row["adj_open"], "buy")
-            qty = _max_affordable_quantity(cash, exec_price, cost_model)
+            qty = max_affordable_quantity(cash, exec_price, cost_model)
             if qty > 0:
                 cost = cost_model.buy_cost(exec_price, qty)
                 cash -= exec_price * qty + cost.total
