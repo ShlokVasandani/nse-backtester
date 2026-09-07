@@ -36,14 +36,23 @@ def default_strategy_grid() -> list[tuple[str, Strategy]]:
     return grid
 
 
-def select_liquid_universe(all_prices: pd.DataFrame, top_n: int = 100) -> list[str]:
+def select_liquid_universe(
+    all_prices: pd.DataFrame, top_n: int = 100, exclude: set[str] | None = None
+) -> list[str]:
     """Symbols with a full trading-day history in `all_prices` (no listing
     gaps mid-window), ranked by average turnover and truncated to the top
     N. Restricts the sweep to stocks liquid enough to be realistic to
-    trade, and keeps runtime sane."""
+    trade, and keeps runtime sane.
+
+    Pass `exclude` (see analysis.data_quality.quarantined_symbols) to drop
+    names whose adjusted series contains an unexplained discontinuity --
+    an unadjusted split shows up as a -90% day, which would otherwise be
+    read as a real return."""
     full_days = all_prices["date"].nunique()
     day_counts = all_prices.groupby("symbol")["date"].nunique()
     eligible = day_counts[day_counts == full_days].index
+    if exclude:
+        eligible = eligible.difference(pd.Index(sorted(exclude)))
 
     turnover = (
         all_prices[all_prices["symbol"].isin(eligible)]

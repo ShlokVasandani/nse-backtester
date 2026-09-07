@@ -45,7 +45,12 @@ _BONUS_RE = re.compile(r"\bBonus\b\s*[-:]?\s*(\d+)\s*:\s*(\d+)\b", re.IGNORECASE
 # says so. This gate is what makes the value-pair regex below safe to keep
 # loose -- and _COMPLEX_ACTION has already removed capital reductions and
 # schemes of arrangement before either runs.
-_FACE_VALUE_CONTEXT = re.compile(r"split|sub-?division|consolidat", re.IGNORECASE)
+# "splt" catches NSE's abbreviated filings ("Fv Splt Frm Rs 10 To Re 1",
+# used for JSWSTEEL/CAPLIPOINT/KPRMILL among others). These escaped BOTH
+# the parser and find_unparsed_suspects, because that detector shares this
+# vocabulary -- they were only caught by the independent price-jump scan in
+# analysis/data_quality.py.
+_FACE_VALUE_CONTEXT = re.compile(r"spli?t|sub-?division|consolidat", re.IGNORECASE)
 
 # The "<Rs A> ... To ... <Rs B>" pair, tolerant of the wording drift found
 # across 2015-2025 filings: "Per Share" present or absent ("From Rs 10 To
@@ -111,7 +116,8 @@ def extract_factors(subject: str) -> list[ParsedFactor]:
 # Subjects that mention these words but produced zero parsed factors are
 # suspicious -- likely a wording variant this parser doesn't handle yet.
 _SUSPECT_KEYWORDS = re.compile(
-    r"\bbonus\b|\bsplit\b|sub-division|consolidat|capital reduction", re.IGNORECASE
+    r"\bbonus\b|spli?t|sub-division|consolidat|capital reduction|demerger|scheme of|rights",
+    re.IGNORECASE,
 )
 
 

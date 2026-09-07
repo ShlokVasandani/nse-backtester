@@ -237,3 +237,33 @@ def test_apply_adjustment_passes_through_symbols_with_no_events():
     adjusted = apply_adjustment(prices, events)
     assert adjusted["adj_close"].iloc[0] == pytest.approx(50.5)
     assert adjusted["adj_multiplier"].iloc[0] == 1.0
+
+
+# Abbreviated NSE filings. These escaped both the parser AND
+# find_unparsed_suspects (which shared its vocabulary), and were only
+# caught by the independent price-jump scan -- JSWSTEEL's real 10:1 split
+# sat in the store as a fake -90% crash.
+SPLIT_ABBREVIATED_RE1 = "Fv Splt Frm Rs 10 To Re 1"
+SPLIT_ABBREVIATED_RS2 = "Fv Splt Frm Rs 10 To Rs 2"
+SPLIT_ABBREVIATED_RS5 = "Fv Splt Frm Rs 10 To Rs 5"
+
+
+@pytest.mark.parametrize(
+    "subject,expected_factor",
+    [
+        (SPLIT_ABBREVIATED_RE1, 0.1),
+        (SPLIT_ABBREVIATED_RS2, 0.2),
+        (SPLIT_ABBREVIATED_RS5, 0.5),
+    ],
+)
+def test_parse_split_handles_abbreviated_filings(subject, expected_factor):
+    result = parse_split(subject)
+    assert result is not None, f"missed a real split: {subject!r}"
+    assert result.factor == pytest.approx(expected_factor)
+
+
+def test_abbreviated_splits_are_also_flagged_as_suspects_when_unparsed():
+    """The suspect detector must recognise abbreviated wording as
+    split-shaped too, so a future variant it can't parse still surfaces."""
+    df = pd.DataFrame({"symbol": ["X"], "subject": ["Fv Splt Frm Rs 10 To Something Weird"]})
+    assert len(find_unparsed_suspects(df)) == 1
