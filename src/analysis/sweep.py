@@ -11,6 +11,9 @@ parameters, not as an isolated lucky hit.
 
 from __future__ import annotations
 
+import datetime as dt
+from dataclasses import dataclass
+
 import pandas as pd
 
 from adjust.store import read_prices
@@ -120,3 +123,52 @@ def aggregate_by_strategy(sweep_results: pd.DataFrame) -> pd.DataFrame:
         mean_bh_sharpe=("bh_sharpe", "mean"),
     )
     return agg.sort_values("beats_bh_sharpe_rate", ascending=False)
+
+
+@dataclass
+class TrainTestResult:
+    best_strategy: str
+    universe_size: int
+    train_aggregate: pd.DataFrame
+    test_aggregate: pd.DataFrame
+
+
+def train_test_validate(
+    train_start: dt.date,
+    train_end: dt.date,
+    test_start: dt.date,
+    test_end: dt.date,
+    *,
+    top_n: int = 100,
+    strategy_grid: list[tuple[str, Strategy]] | None = None,
+    initial_cash: float = 100_000.0,
+) -> TrainTestResult:
+    """Pick the sweep's best strategy on the train window only, then run
+    that SAME strategy (same parameters, same universe) on the untouched
+    test window. This is the only honest way to tell a sweep's winner
+    apart from overfit noise: does it still win on data it wasn't chosen
+    from. `test_aggregate` is empty if the winning strategy never traded
+    in the test window at all (not the same as losing -- worth checking
+    which happened)."""
+    strategy_grid = strategy_grid or default_strategy_grid()
+
+    train_prices = read_prices(start=train_start, end=train_end)
+    universe = select_liquid_universe(train_prices, top_n=top_n)
+
+    train_results = run_sweep(universe, train_prices, strategy_grid, initial_cash=initial_cash)
+    train_agg = aggregate_by_strategy(train_results)
+    if train_agg.empty:
+        raise ValueError("No strategy produced any trades in the train window.")
+    best_strategy = train_agg.index[0]
+    winning_strategy_def = [(label, strat) for label, strat in strategy_grid if label == best_strategy]
+
+    test_prices = read_prices(start=test_start, end=test_end)
+    test_results = run_sweep(universe, test_prices, winning_strategy_def, initial_cash=initial_cash)
+    test_agg = aggregate_by_strategy(test_results)
+
+    return TrainTestResult(
+        best_strategy=best_strategy,
+        universe_size=len(universe),
+        train_aggregate=train_agg,
+        test_aggregate=test_agg,
+    )
