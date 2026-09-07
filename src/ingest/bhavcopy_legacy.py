@@ -18,6 +18,7 @@ emits, with the missing early fields left null rather than faked.
 from __future__ import annotations
 
 import datetime as dt
+import re
 import zipfile
 from pathlib import Path
 
@@ -38,8 +39,49 @@ LEGACY_EARLIEST_DATE = dt.date(2000, 1, 3)
 LEGACY_LATEST_DATE = dt.date(2024, 7, 5)
 
 
+# NSE's TIMESTAMP column is *mostly* "28-DEC-2023", but not always: of
+# 1364 archived files checked, cm13JUL2020bhav uses "13-Jul-20" -- mixed
+# case and a 2-digit year -- for every one of its 2001 rows. Rather than
+# guess, try the known formats and cross-check the result against the date
+# in the filename, which is authoritative. That check is what catches the
+# next variant instead of silently landing wrong dates in the store.
+_TIMESTAMP_FORMATS = ("%d-%b-%Y", "%d-%b-%y")
+_LEGACY_FILENAME_RE = re.compile(r"cm(\d{1,2})([A-Za-z]{3})(\d{4})bhav", re.IGNORECASE)
+
+
 def _month_token(date: dt.date) -> str:
     return date.strftime("%b").upper()
+
+
+def _date_from_filename(path: Path) -> dt.date | None:
+    m = _LEGACY_FILENAME_RE.search(path.name)
+    if not m:
+        return None
+    try:
+        return dt.datetime.strptime(
+            f"{int(m.group(1)):02d}-{m.group(2).upper()}-{m.group(3)}", "%d-%b-%Y"
+        ).date()
+    except ValueError:
+        return None
+
+
+def _parse_timestamps(timestamps: pd.Series, expected: dt.date | None) -> pd.Series:
+    failures = []
+    for fmt in _TIMESTAMP_FORMATS:
+        try:
+            parsed = pd.to_datetime(timestamps, format=fmt).dt.date
+        except (ValueError, TypeError) as exc:
+            failures.append(f"{fmt}: {exc}")
+            continue
+        if expected is not None and not (parsed == expected).all():
+            failures.append(f"{fmt}: parsed dates disagree with filename date {expected}")
+            continue
+        return parsed
+
+    raise ValueError(
+        "Could not parse legacy bhavcopy TIMESTAMP column "
+        f"(sample {timestamps.iloc[0]!r}). Tried: " + "; ".join(failures)
+    )
 
 
 def legacy_raw_path(date: dt.date, raw_dir: Path) -> Path:
@@ -82,7 +124,7 @@ def parse_legacy_bhavcopy(path: Path) -> pd.DataFrame:
 
     out = pd.DataFrame(
         {
-            "date": pd.to_datetime(df["TIMESTAMP"], format="%d-%b-%Y").dt.date,
+            "date": _parse_timestamps(df["TIMESTAMP"], _date_from_filename(path)),
             "symbol": df["SYMBOL"].astype(str).str.strip(),
             "series": df["SERIES"].astype(str).str.strip(),
             "isin": isin,

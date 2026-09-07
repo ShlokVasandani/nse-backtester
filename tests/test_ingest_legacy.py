@@ -75,6 +75,29 @@ def test_legacy_and_modern_parsers_emit_the_same_columns(tmp_path: Path):
     assert legacy["trades"].dtype == modern["trades"].dtype
 
 
+TWO_DIGIT_YEAR_CSV = """SYMBOL,SERIES,OPEN,HIGH,LOW,CLOSE,LAST,PREVCLOSE,TOTTRDQTY,TOTTRDVAL,TIMESTAMP,TOTALTRADES,ISIN
+20MICRONS,EQ,35.5,36.4,35.05,36.1,36.15,35.4,63091,2262158.85,13-Jul-20,438,INE144J01027
+"""
+
+
+def test_parse_legacy_handles_two_digit_year_timestamp(tmp_path: Path):
+    """cm13JUL2020bhav is the one file in the whole archive that writes
+    '13-Jul-20' instead of '13-JUL-2020'. It must still land on the right
+    date, not 1920 or a crash."""
+    path = _zip_with(tmp_path, "cm13JUL2020bhav", TWO_DIGIT_YEAR_CSV)
+    df = parse_legacy_bhavcopy(path)
+    assert df["date"].iloc[0] == dt.date(2020, 7, 13)
+
+
+def test_parse_legacy_rejects_timestamps_that_contradict_the_filename(tmp_path: Path):
+    """The filename is authoritative. If a future format variant parses
+    but lands on the wrong date, fail loudly rather than store it."""
+    wrong = TWO_DIGIT_YEAR_CSV.replace("13-Jul-20", "01-JAN-1999")
+    path = _zip_with(tmp_path, "cm13JUL2020bhav", wrong)
+    with pytest.raises(ValueError, match="disagree with filename"):
+        parse_legacy_bhavcopy(path)
+
+
 def test_parse_auto_dispatches_on_header(tmp_path: Path):
     from tests.test_ingest_bhavcopy import SAMPLE_CSV
 
