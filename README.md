@@ -28,12 +28,12 @@ pip install -e ".[dev]"
 ## Usage
 
 ```bash
-python cli.py --date 2025-09-05
-```
+# Single day
+python cli.py ingest-bhavcopy --date 2025-09-05
 
-(Currently a single-command CLI, so Typer runs it without a subcommand name.
-This will become `python cli.py ingest-bhavcopy --date ...` once more
-subcommands — `adjust`, `backtest`, etc. — are added.)
+# Date range -> combined raw store at data/raw/history.parquet
+python cli.py build-history --start 2023-09-07 --end 2025-09-07
+```
 
 ## Status
 
