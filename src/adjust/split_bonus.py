@@ -38,13 +38,22 @@ _NON_EQUITY_BONUS = re.compile(r"debenture|ncrps|preference|nca|ncd", re.IGNOREC
 # Compound/ambiguous actions we refuse to guess at.
 _COMPLEX_ACTION = re.compile(r"capital reduction|scheme of (?:ar+angement|amalgamation)", re.IGNORECASE)
 
-_BONUS_RE = re.compile(r"\bBonus\s+(\d+)\s*:\s*(\d+)\b", re.IGNORECASE)
+# Separator after "Bonus" varies: "Bonus 1:2", "Bonus- 1:2", "Bonus - 1:2".
+_BONUS_RE = re.compile(r"\bBonus\b\s*[-:]?\s*(\d+)\s*:\s*(\d+)\b", re.IGNORECASE)
 
-# Matches both "Face Value Split (Sub-Division)" and "Consolidation Of
-# Equity Shares" wording -- both express "From <old face value> ... To <new
-# face value>", just with the ratio going opposite directions.
+# A face-value change is only interpreted as one when the subject actually
+# says so. This gate is what makes the value-pair regex below safe to keep
+# loose -- and _COMPLEX_ACTION has already removed capital reductions and
+# schemes of arrangement before either runs.
+_FACE_VALUE_CONTEXT = re.compile(r"split|sub-?division|consolidat", re.IGNORECASE)
+
+# The "<Rs A> ... To ... <Rs B>" pair, tolerant of the wording drift found
+# across 2015-2025 filings: "Per Share" present or absent ("From Rs 10 To
+# Rs 1"), truncated ("Rs 10/- Per To Rs 2/-"), "/-" present or absent, and
+# "Rs"/"Re" used interchangeably. The gap between the two values is capped
+# at a few non-digit characters so this can't span unrelated clauses.
 _FACE_VALUE_RE = re.compile(
-    r"From\s+R[se]\.?\s*(\d+(?:\.\d+)?)\s*/?-?\s*Per\s+Share\s+To\s+R[se]\.?\s*(\d+(?:\.\d+)?)\s*/?-?\s*Per\s+Share",
+    r"R[se]\.?\s*(\d+(?:\.\d+)?)\s*(?:/-)?[^0-9]{0,20}?\bTo\b[^0-9]{0,12}?R[se]\.?\s*(\d+(?:\.\d+)?)",
     re.IGNORECASE,
 )
 
@@ -68,6 +77,8 @@ def parse_bonus(subject: str) -> ParsedFactor | None:
 
 
 def parse_split(subject: str) -> ParsedFactor | None:
+    if not _FACE_VALUE_CONTEXT.search(subject):
+        return None
     m = _FACE_VALUE_RE.search(subject)
     if not m:
         return None

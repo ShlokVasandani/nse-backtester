@@ -29,6 +29,24 @@ BONUS_PLUS_SPLIT = "Bonus 1:2/Face Value Split (Sub-Division) From Rs 2/- Per Sh
 CAPITAL_REDUCTION = "Capital Reduction Rs 10 To Rs 3.30 / Consolidation Rs 3.30 To Rs.10"
 PLAIN_DIVIDEND = "Dividend - Rs 10 Per Share"
 
+# Older (2015-2020 era) wordings found in the real feed that an earlier
+# version of this parser silently missed. A missed 10:1 split leaves a fake
+# -90% crash in the adjusted series, so these are regression fixtures.
+SPLIT_NO_PER_SHARE = "Face Value Split From Rs 10 To Rs 1"
+SPLIT_NO_FROM = "Face Value Split Rs 10 To Rs 1"
+SPLIT_RE_TWO = "Face Value Split From Rs 10 To Re 2"
+SPLIT_TRUNCATED_PER = "Face Valus Split (Sub-Division) - From Rs 10/- Per To Rs 2/- Per Share"
+SPLIT_RECORD_DATE_SUFFIX = "Face Value Split From Rs 10 To Re 1 (Record Date Revised)"
+BONUS_HYPHEN_NO_SPACE = "Bonus- 1:2"
+BONUS_IN_COMPOUND_SUBJECT = "Annual General Meeting / Dividend - Rs 3/- Per Share / Bonus - 1:2"
+
+# Must stay excluded even with the looser patterns.
+CAPITAL_REDUCTION_WITH_VALUES = "Capital Reduction -  From Rs 10/- To Rs 4/- Per Share"
+CAPITAL_REDUCTION_BARE = "Capital Reduction"
+CAPITAL_REDUCTION_NCLT = "Capital Reduction Pursuant To Nclt Order"
+BONUS_DEBENTURES = "Scheme Of Arrangement - Bonus Debentures 1:1"
+BONUS_NCRPS_SMALL = "Bonus Ncrps 1:116"
+
 
 def test_parse_bonus_plain():
     result = parse_bonus(PLAIN_BONUS)
@@ -69,6 +87,51 @@ def test_parse_split_variants(subject, expected_factor, expected_kind):
 
 def test_parse_split_returns_none_for_non_split_text():
     assert parse_split(PLAIN_DIVIDEND) is None
+
+
+@pytest.mark.parametrize(
+    "subject,expected_factor",
+    [
+        (SPLIT_NO_PER_SHARE, 0.1),
+        (SPLIT_NO_FROM, 0.1),
+        (SPLIT_RE_TWO, 0.2),
+        (SPLIT_TRUNCATED_PER, 0.2),
+        (SPLIT_RECORD_DATE_SUFFIX, 0.1),
+    ],
+)
+def test_parse_split_handles_older_wording_variants(subject, expected_factor):
+    result = parse_split(subject)
+    assert result is not None, f"missed a real split: {subject!r}"
+    assert result.factor == pytest.approx(expected_factor)
+
+
+@pytest.mark.parametrize(
+    "subject,expected_factor",
+    [
+        (BONUS_HYPHEN_NO_SPACE, 2 / 3),  # Bonus 1:2
+        (BONUS_IN_COMPOUND_SUBJECT, 2 / 3),
+    ],
+)
+def test_parse_bonus_handles_hyphen_separator_and_compound_subjects(subject, expected_factor):
+    result = parse_bonus(subject)
+    assert result is not None, f"missed a real bonus: {subject!r}"
+    assert result.factor == pytest.approx(expected_factor)
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        CAPITAL_REDUCTION_WITH_VALUES,
+        CAPITAL_REDUCTION_BARE,
+        CAPITAL_REDUCTION_NCLT,
+        BONUS_DEBENTURES,
+        BONUS_NCRPS_SMALL,
+    ],
+)
+def test_looser_patterns_still_refuse_non_equity_and_complex_actions(subject):
+    """The loosened regexes must not start swallowing the cases we
+    deliberately refuse to guess at."""
+    assert extract_factors(subject) == []
 
 
 def test_extract_factors_combines_bonus_and_split():

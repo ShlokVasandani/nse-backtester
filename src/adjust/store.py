@@ -23,30 +23,44 @@ DEFAULT_DB_PATH = Path("data/processed/nse.duckdb")
 
 def write_prices(adjusted: pd.DataFrame, db_path: Path = DEFAULT_DB_PATH) -> None:
     """Upsert `adjusted` (output of apply_adjustment) into the prices table,
-    keyed on (symbol, date). Existing rows for the same key are replaced."""
+    keyed on (symbol, date). Existing rows for the same key are replaced.
+
+    The delete-then-insert happens inside DuckDB rather than by reading the
+    table into pandas and rewriting it: with 20+ years of history the table
+    runs to millions of rows, and a read-modify-write of the whole thing on
+    every incremental pull would blow up both memory and runtime.
+    """
+    if adjusted.empty:
+        return
+
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(db_path))
     try:
+        incoming = adjusted.sort_values(["symbol", "date"]).reset_index(drop=True)
+        # Last write wins within the incoming batch itself.
+        incoming = incoming.drop_duplicates(subset=["symbol", "date"], keep="last")
+        con.register("incoming", incoming)
+
         has_table = con.execute(
             "SELECT 1 FROM information_schema.tables WHERE table_name = 'prices'"
         ).fetchone()
 
-        if has_table:
-            existing = con.execute("SELECT * FROM prices").df()
-            # DuckDB round-trips DATE columns as pandas Timestamps, not
-            # python date objects -- normalize so the dedup below actually
-            # matches rows against `adjusted` (which uses python date).
-            existing["date"] = pd.to_datetime(existing["date"]).dt.date
-            combined = pd.concat([existing, adjusted], ignore_index=True)
+        if not has_table:
+            con.execute("CREATE TABLE prices AS SELECT * FROM incoming")
         else:
-            combined = adjusted
+            columns = [f'"{c}"' for c in con.execute("SELECT * FROM prices LIMIT 0").df().columns]
+            con.execute("BEGIN TRANSACTION")
+            con.execute(
+                "DELETE FROM prices WHERE EXISTS ("
+                "  SELECT 1 FROM incoming i"
+                "  WHERE i.symbol = prices.symbol AND i.date = prices.date)"
+            )
+            con.execute(f"INSERT INTO prices SELECT {', '.join(columns)} FROM incoming")
+            con.execute("COMMIT")
 
-        combined = combined.drop_duplicates(subset=["symbol", "date"], keep="last")
-        combined = combined.sort_values(["symbol", "date"]).reset_index(drop=True)
-
-        con.execute("CREATE OR REPLACE TABLE prices AS SELECT * FROM combined")
         con.execute("CREATE INDEX IF NOT EXISTS idx_prices_symbol_date ON prices(symbol, date)")
     finally:
+        con.unregister("incoming")
         con.close()
 
 
