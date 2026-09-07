@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Data (fetched/generated, not committed)
+data/raw/*
+!data/raw/.gitkeep
+data/raw/bhavcopy/*
+data/processed/*
+!data/processed/.gitkeep
+*.duckdb
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
