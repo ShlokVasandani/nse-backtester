@@ -3,6 +3,16 @@
 Source: https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_<YYYYMMDD>_F_0000.csv.zip
 This is a static archive (no auth/cookies needed), but NSE blocks requests
 without a browser-like User-Agent.
+
+Known limitation, confirmed by binary search: this archive only goes back
+to EARLIEST_AVAILABLE_DATE below. Every weekday before that 404s exactly
+like a holiday would, even though the market was open -- so
+build_history()/BhavcopyNotAvailable will silently (and misleadingly)
+report those as "non-trading days skipped" rather than "data not
+available here." Requesting a range that starts earlier won't error; it
+will just quietly return less history than asked for. Getting further
+back would need NSE's older (pre-UDiFF) bhavcopy format, which has a
+different URL and column schema -- not implemented here.
 """
 
 from __future__ import annotations
@@ -18,6 +28,10 @@ BHAVCOPY_URL = (
     "https://nsearchives.nseindia.com/content/cm/"
     "BhavCopy_NSE_CM_0_0_0_{date:%Y%m%d}_F_0000.csv.zip"
 )
+
+# 2023-12-29 -> 404, 2024-01-01 -> 200 (verified live). Earlier requests
+# don't fail loudly; they just return no data for those dates.
+EARLIEST_AVAILABLE_DATE = dt.date(2024, 1, 1)
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
