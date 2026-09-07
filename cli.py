@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 import typer
 
 from adjust.store import DEFAULT_DB_PATH, build_and_store, read_prices
+from engine.backtest import run_backtest
 from ingest.bhavcopy import BhavcopyNotAvailable, fetch_bhavcopy
 from ingest.history import build_history, save_history
 from strategy.momentum import Momentum
@@ -18,6 +19,17 @@ app = typer.Typer()
 
 RAW_DIR = Path("data/raw/bhavcopy")
 HISTORY_PATH = Path("data/raw/history.parquet")
+
+
+def _build_strategy(name: str, fast: int, slow: int, lookback: int):
+    """Shared by `signal` and `backtest` so both commands pick a strategy
+    the same way."""
+    if name == "ma":
+        return MovingAverageCrossover(fast_window=fast, slow_window=slow), f"MA crossover ({fast}/{slow})"
+    if name == "momentum":
+        return Momentum(lookback_days=lookback), f"Momentum ({lookback}d)"
+    typer.echo(f"Unknown strategy '{name}'. Choose 'ma' or 'momentum'.")
+    raise typer.Exit(code=1)
 
 
 @app.command()
@@ -123,15 +135,7 @@ def signal(
         typer.echo(f"No stored data for {symbol}. Run `store` first.")
         raise typer.Exit(code=1)
 
-    if strategy == "ma":
-        strat = MovingAverageCrossover(fast_window=fast, slow_window=slow)
-        label = f"MA crossover ({fast}/{slow})"
-    elif strategy == "momentum":
-        strat = Momentum(lookback_days=lookback)
-        label = f"Momentum ({lookback}d)"
-    else:
-        typer.echo(f"Unknown strategy '{strategy}'. Choose 'ma' or 'momentum'.")
-        raise typer.Exit(code=1)
+    strat, label = _build_strategy(strategy, fast, slow, lookback)
 
     changes = strat.find_signal_changes(df)
     current = changes.iloc[-1]
@@ -141,6 +145,40 @@ def signal(
     typer.echo(f"Current signal: {state} (since {current['date']})")
     typer.echo("Recent signal changes:")
     typer.echo(changes.tail(5).to_string(index=False))
+
+
+@app.command()
+def backtest(
+    symbol: str = typer.Argument(..., help="NSE symbol, e.g. RELIANCE"),
+    strategy: str = typer.Option("ma", help="Which rule to run: 'ma' or 'momentum'"),
+    fast: int = typer.Option(50, help="ma: fast SMA window (days)"),
+    slow: int = typer.Option(200, help="ma: slow SMA window (days)"),
+    lookback: int = typer.Option(90, help="momentum: lookback window (days)"),
+    cash: float = typer.Option(100_000.0, help="Starting capital"),
+):
+    """Backtest a strategy against a symbol's full stored history, with
+    real NSE delivery trading costs and slippage -- this is what tells you
+    whether a signal is worth trusting, not just what it currently says."""
+    symbol = symbol.upper()
+    df = read_prices(symbol=symbol)
+    if df.empty:
+        typer.echo(f"No stored data for {symbol}. Run `store` first.")
+        raise typer.Exit(code=1)
+
+    strat, label = _build_strategy(strategy, fast, slow, lookback)
+    result = run_backtest(df, strat, initial_cash=cash)
+
+    final_equity = result.equity_curve["equity"].iloc[-1]
+    total_return = (final_equity / cash - 1) * 100
+    buy_hold_equity = cash / df["adj_close"].iloc[0] * df["adj_close"].iloc[-1]
+    buy_hold_return = (buy_hold_equity / cash - 1) * 100
+
+    typer.echo(f"{symbol} -- {label} backtest, {df['date'].iloc[0]} to {df['date'].iloc[-1]}")
+    typer.echo(f"Starting capital: {cash:,.2f}")
+    typer.echo(f"Strategy final equity: {final_equity:,.2f} ({total_return:+.1f}%)")
+    typer.echo(f"Buy & hold would be:  {buy_hold_equity:,.2f} ({buy_hold_return:+.1f}%)")
+    typer.echo(f"Trades: {len(result.trades)}")
+    typer.echo("[return only -- Sharpe/drawdown/win-rate coming with src/metrics]")
 
 
 if __name__ == "__main__":
