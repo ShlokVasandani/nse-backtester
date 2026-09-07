@@ -12,6 +12,7 @@ from adjust.store import DEFAULT_DB_PATH, build_and_store, read_prices
 from engine.backtest import run_backtest
 from ingest.bhavcopy import BhavcopyNotAvailable, fetch_bhavcopy
 from ingest.history import build_history, save_history
+from metrics.performance import summarize
 from strategy.momentum import Momentum
 from strategy.moving_average import MovingAverageCrossover
 
@@ -167,18 +168,33 @@ def backtest(
 
     strat, label = _build_strategy(strategy, fast, slow, lookback)
     result = run_backtest(df, strat, initial_cash=cash)
+    strategy_summary = summarize(result.equity_curve, result.trades)
 
-    final_equity = result.equity_curve["equity"].iloc[-1]
-    total_return = (final_equity / cash - 1) * 100
-    buy_hold_equity = cash / df["adj_close"].iloc[0] * df["adj_close"].iloc[-1]
-    buy_hold_return = (buy_hold_equity / cash - 1) * 100
+    buy_hold_curve = df[["date"]].copy()
+    buy_hold_curve["equity"] = cash / df["adj_close"].iloc[0] * df["adj_close"]
+    buy_hold_summary = summarize(buy_hold_curve, [])
+
+    def _fmt_pct(x: float | None) -> str:
+        return f"{x * 100:+.1f}%" if x is not None else "n/a"
+
+    def _fmt_rate(x: float | None) -> str:
+        return f"{x * 100:.1f}%" if x is not None else "n/a"
+
+    def _fmt_ratio(x: float | None) -> str:
+        return f"{x:.2f}" if x is not None else "n/a"
 
     typer.echo(f"{symbol} -- {label} backtest, {df['date'].iloc[0]} to {df['date'].iloc[-1]}")
     typer.echo(f"Starting capital: {cash:,.2f}")
-    typer.echo(f"Strategy final equity: {final_equity:,.2f} ({total_return:+.1f}%)")
-    typer.echo(f"Buy & hold would be:  {buy_hold_equity:,.2f} ({buy_hold_return:+.1f}%)")
-    typer.echo(f"Trades: {len(result.trades)}")
-    typer.echo("[return only -- Sharpe/drawdown/win-rate coming with src/metrics]")
+    typer.echo()
+    typer.echo(f"{'':22}{'Strategy':>16}{'Buy & hold':>16}")
+    typer.echo(f"{'Final equity':22}{strategy_summary.final_equity:>16,.2f}{buy_hold_summary.final_equity:>16,.2f}")
+    typer.echo(f"{'Total return':22}{_fmt_pct(strategy_summary.total_return):>16}{_fmt_pct(buy_hold_summary.total_return):>16}")
+    typer.echo(f"{'CAGR':22}{_fmt_pct(strategy_summary.cagr):>16}{_fmt_pct(buy_hold_summary.cagr):>16}")
+    typer.echo(f"{'Sharpe':22}{_fmt_ratio(strategy_summary.sharpe):>16}{_fmt_ratio(buy_hold_summary.sharpe):>16}")
+    typer.echo(f"{'Max drawdown':22}{_fmt_pct(strategy_summary.max_drawdown):>16}{_fmt_pct(buy_hold_summary.max_drawdown):>16}")
+    typer.echo()
+    typer.echo(f"Round-trip trades: {strategy_summary.n_round_trips}  Win rate: {_fmt_rate(strategy_summary.win_rate)}")
+    typer.echo("[a mechanical rule's backtest result -- not investment advice]")
 
 
 if __name__ == "__main__":
