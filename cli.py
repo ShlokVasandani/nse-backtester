@@ -11,6 +11,8 @@ import typer
 from adjust.store import DEFAULT_DB_PATH, build_and_store, read_prices
 from ingest.bhavcopy import BhavcopyNotAvailable, fetch_bhavcopy
 from ingest.history import build_history, save_history
+from strategy.momentum import Momentum
+from strategy.moving_average import MovingAverageCrossover
 
 app = typer.Typer()
 
@@ -101,6 +103,44 @@ def show(symbol: str = typer.Argument(..., help="NSE symbol, e.g. RELIANCE")):
     period_return = (latest["adj_close"] / df["adj_close"].iloc[0] - 1) * 100
     typer.echo(f"Return over stored period: {period_return:+.1f}%")
     typer.echo(f"Split/bonus adjustments applied in this window: {n_events}")
+
+
+@app.command()
+def signal(
+    symbol: str = typer.Argument(..., help="NSE symbol, e.g. RELIANCE"),
+    strategy: str = typer.Option("ma", help="Which rule to run: 'ma' or 'momentum'"),
+    fast: int = typer.Option(50, help="ma: fast SMA window (days)"),
+    slow: int = typer.Option(200, help="ma: slow SMA window (days)"),
+    lookback: int = typer.Option(90, help="momentum: lookback window (days)"),
+):
+    """Show a strategy's current signal for a symbol and its recent
+    changes. This is mechanical rule output, not investment advice --
+    it hasn't been backtested yet, so don't trust it with money until it
+    has been (that's what src/engine + src/metrics, still to come, are for)."""
+    symbol = symbol.upper()
+    df = read_prices(symbol=symbol)
+    if df.empty:
+        typer.echo(f"No stored data for {symbol}. Run `store` first.")
+        raise typer.Exit(code=1)
+
+    if strategy == "ma":
+        strat = MovingAverageCrossover(fast_window=fast, slow_window=slow)
+        label = f"MA crossover ({fast}/{slow})"
+    elif strategy == "momentum":
+        strat = Momentum(lookback_days=lookback)
+        label = f"Momentum ({lookback}d)"
+    else:
+        typer.echo(f"Unknown strategy '{strategy}'. Choose 'ma' or 'momentum'.")
+        raise typer.Exit(code=1)
+
+    changes = strat.find_signal_changes(df)
+    current = changes.iloc[-1]
+    state = "LONG" if current["signal"] == 1 else "FLAT"
+
+    typer.echo(f"{symbol} -- {label} [unvalidated rule, not advice]")
+    typer.echo(f"Current signal: {state} (since {current['date']})")
+    typer.echo("Recent signal changes:")
+    typer.echo(changes.tail(5).to_string(index=False))
 
 
 if __name__ == "__main__":
