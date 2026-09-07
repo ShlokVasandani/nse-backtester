@@ -100,7 +100,10 @@ def parse_bhavcopy(path: Path) -> pd.DataFrame:
             "prev_close": df["PrvsClsgPric"].astype(float),
             "volume": df["TtlTradgVol"].astype("int64"),
             "turnover": df["TtlTrfVal"].astype(float),
-            "trades": df["TtlNbOfTxsExctd"].astype("int64"),
+            # Nullable Int64, not int64: the legacy parser (pre-2012 files)
+            # has no trade-count column, and both eras must share one
+            # schema to land in the same DuckDB table.
+            "trades": df["TtlNbOfTxsExctd"].astype("Int64"),
         }
     )
     return out.sort_values(["symbol", "date"]).reset_index(drop=True)

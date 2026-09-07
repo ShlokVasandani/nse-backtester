@@ -47,8 +47,8 @@ def test_build_history_skips_holidays_and_concatenates(tmp_path: Path, monkeypat
         date = dt.date.fromisoformat(path.stem.split(".")[0])
         return _fake_df(date)
 
-    monkeypatch.setattr("ingest.history.download_bhavcopy", fake_download)
-    monkeypatch.setattr("ingest.history.parse_bhavcopy", fake_parse)
+    monkeypatch.setattr("ingest.history.download_for_date", fake_download)
+    monkeypatch.setattr("ingest.history.parse_auto", fake_parse)
 
     history, holidays = build_history(
         dt.date(2025, 9, 8), dt.date(2025, 9, 10), tmp_path, sleep=0, progress=False
@@ -62,7 +62,7 @@ def test_build_history_all_holidays_returns_empty_frame(tmp_path: Path, monkeypa
     def always_unavailable(date, raw_dir, force=False):
         raise BhavcopyNotAvailable("nope")
 
-    monkeypatch.setattr("ingest.history.download_bhavcopy", always_unavailable)
+    monkeypatch.setattr("ingest.history.download_for_date", always_unavailable)
 
     history, holidays = build_history(
         dt.date(2025, 9, 8), dt.date(2025, 9, 8), tmp_path, sleep=0, progress=False

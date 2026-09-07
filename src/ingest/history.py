@@ -15,7 +15,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from ingest.bhavcopy import BhavcopyNotAvailable, download_bhavcopy, parse_bhavcopy, raw_path
+from ingest.bhavcopy import BhavcopyNotAvailable
+from ingest.fetch import download_for_date, parse_auto, raw_path_for
 
 HISTORY_COLUMNS = [
     "date",
@@ -68,16 +69,16 @@ def build_history(
 
     with cm as bar:
         for date in bar:
-            dest = raw_path(date, raw_dir)
+            dest = raw_path_for(date, raw_dir)
             already_cached = dest.exists() and not force
             try:
-                path = download_bhavcopy(date, raw_dir, force=force)
+                path = download_for_date(date, raw_dir, force=force)
             except BhavcopyNotAvailable:
                 holidays.append(date)
                 continue
             if not already_cached:
                 time.sleep(sleep)
-            frames.append(parse_bhavcopy(path))
+            frames.append(parse_auto(path))
 
     if not frames:
         return pd.DataFrame(columns=HISTORY_COLUMNS), holidays
