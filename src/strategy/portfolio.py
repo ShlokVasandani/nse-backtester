@@ -16,6 +16,44 @@ from abc import ABC, abstractmethod
 import pandas as pd
 
 
+class PointInTimeUniverse:
+    """Pick the tradeable universe using ONLY data available on the
+    rebalance date.
+
+    This replaces selecting one universe up front from the whole backtest
+    window, which is doubly biased: ranking by turnover over the full
+    period is look-ahead (a stock that only became liquid in 2024 gets
+    included in 2015), and requiring an unbroken listing history is
+    survivorship (companies that were delisted or went bust are silently
+    dropped, so the benchmark only ever holds winners).
+
+    Because the bhavcopy files contain every symbol that traded on each
+    day, selecting per-rebalance from what was actually trading then fixes
+    both: a company that later collapses is held while it was real, and a
+    company not yet liquid simply isn't eligible yet.
+    """
+
+    def __init__(self, top_n: int = 100, lookback_days: int = 252, min_history_days: int = 200):
+        self.top_n = top_n
+        self.lookback_days = lookback_days
+        self.min_history_days = min_history_days
+
+    def select(self, close_history: pd.DataFrame, turnover_history: pd.DataFrame) -> list[str]:
+        window_close = close_history.iloc[-self.lookback_days :]
+        window_turnover = turnover_history.iloc[-self.lookback_days :]
+        if len(window_close) < self.min_history_days:
+            return []
+
+        # Must have actually been trading for most of the window, and be
+        # trading right now (a delisted name has no current price).
+        traded_enough = window_close.notna().sum() >= self.min_history_days
+        trading_now = close_history.iloc[-1].notna()
+        eligible = traded_enough & trading_now
+
+        avg_turnover = window_turnover[eligible.index[eligible]].mean().dropna()
+        return list(avg_turnover.nlargest(self.top_n).index)
+
+
 class PortfolioStrategy(ABC):
     @abstractmethod
     def select(self, close_history: pd.DataFrame) -> dict[str, float]:
@@ -27,6 +65,25 @@ class PortfolioStrategy(ABC):
         Returns {symbol: target weight}. Weights should sum to <= 1.0;
         anything left over stays in cash. An empty dict means hold cash.
         """
+
+
+class EqualWeightAll(PortfolioStrategy):
+    """Hold everything in the universe, equally weighted.
+
+    This is the benchmark that makes a fair fight: run through the SAME
+    engine, the SAME point-in-time universe, the SAME monthly rebalance and
+    the SAME costs as the strategy under test, so the only difference is
+    the selection rule. Comparing a top-20 momentum basket against a
+    buy-and-hold of every symbol in the database instead would confound
+    the rule with a completely different risk profile.
+    """
+
+    def select(self, close_history: pd.DataFrame) -> dict[str, float]:
+        tradeable = close_history.iloc[-1].dropna().index
+        if len(tradeable) == 0:
+            return {}
+        weight = 1.0 / len(tradeable)
+        return {symbol: weight for symbol in tradeable}
 
 
 class TopNMomentum(PortfolioStrategy):

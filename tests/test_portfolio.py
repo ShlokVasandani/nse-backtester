@@ -165,3 +165,63 @@ def test_equal_weight_buy_hold_benchmark():
     assert curve["equity"].iloc[0] == pytest.approx(1000.0)
     # A doubles (500 -> 1000), B flat (500) => 1500
     assert curve["equity"].iloc[-1] == pytest.approx(1500.0)
+
+
+def test_point_in_time_universe_excludes_not_yet_liquid_and_delisted():
+    from strategy.portfolio import PointInTimeUniverse
+
+    dates = [dt.date(2024, 1, i + 1) for i in range(10)]
+    closes = pd.DataFrame(
+        {
+            "LIQUID": [100.0] * 10,
+            "THIN": [100.0] * 10,
+            "DELISTED": [100.0] * 5 + [None] * 5,   # stopped trading
+        },
+        index=dates,
+    )
+    turnover = pd.DataFrame(
+        {"LIQUID": [1e9] * 10, "THIN": [1.0] * 10, "DELISTED": [1e9] * 5 + [None] * 5},
+        index=dates,
+    )
+    sel = PointInTimeUniverse(top_n=2, lookback_days=10, min_history_days=8)
+    picked = sel.select(closes, turnover)
+
+    # DELISTED has no current price, so it can't be bought today.
+    assert "DELISTED" not in picked
+    # LIQUID outranks THIN on turnover.
+    assert picked[0] == "LIQUID"
+
+
+def test_point_in_time_universe_returns_nothing_before_enough_history():
+    from strategy.portfolio import PointInTimeUniverse
+
+    dates = [dt.date(2024, 1, i + 1) for i in range(3)]
+    closes = pd.DataFrame({"A": [1.0, 2.0, 3.0]}, index=dates)
+    turnover = pd.DataFrame({"A": [1e9] * 3}, index=dates)
+    assert PointInTimeUniverse(top_n=5, lookback_days=252, min_history_days=200).select(
+        closes, turnover
+    ) == []
+
+
+def test_engine_only_shows_strategy_the_point_in_time_universe():
+    """The strategy must never see a symbol the universe selector excluded."""
+    dates = [dt.date(2024, 1, 1), dt.date(2024, 2, 1), dt.date(2024, 3, 1)]
+    prices = _long_prices({"KEEP": [10.0, 10.0, 10.0], "DROP": [10.0, 10.0, 10.0]}, dates)
+    prices["turnover"] = 1e6
+
+    class OnlyKeep:
+        def select(self, close_history, turnover_history):
+            return ["KEEP"]
+
+    seen = []
+
+    class RecordingStrategy(PortfolioStrategy):
+        def select(self, close_history):
+            seen.append(list(close_history.columns))
+            return {}
+
+    run_portfolio_backtest(
+        prices, RecordingStrategy(), cost_model=ZERO_COST,
+        slippage_model=ZERO_SLIPPAGE, universe_selector=OnlyKeep(),
+    )
+    assert seen and all(cols == ["KEEP"] for cols in seen)

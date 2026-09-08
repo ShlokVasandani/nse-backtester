@@ -136,15 +136,23 @@ def run_portfolio_backtest(
     slippage_model: SlippageModel | None = None,
     initial_cash: float = 100_000.0,
     rebalance_dates: set[dt.date] | None = None,
+    universe_selector=None,
 ) -> PortfolioBacktestResult:
     """all_prices: long format with columns symbol, date, adj_open,
     adj_close (as returned by adjust.store.read_prices). Rebalances at the
-    start of each month unless `rebalance_dates` is given."""
+    start of each month unless `rebalance_dates` is given.
+
+    `universe_selector` (see strategy.portfolio.PointInTimeUniverse) is
+    consulted at each rebalance with history up to that point, and the
+    strategy only ever sees the symbols it returns. Without one, the
+    strategy sees every symbol in `all_prices`, which for a fixed
+    pre-filtered universe means look-ahead and survivorship bias."""
     cost_model = cost_model or CostModel()
     slippage_model = slippage_model or SlippageModel()
 
     closes = to_wide(all_prices, "adj_close")
     opens = to_wide(all_prices, "adj_open")
+    turnovers = to_wide(all_prices, "turnover") if universe_selector is not None else None
     dates = list(closes.index)
     if rebalance_dates is None:
         rebalance_dates = month_start_rebalance_dates(dates)
@@ -158,7 +166,11 @@ def run_portfolio_backtest(
         # i > 0 so the strategy always sees at least one prior close, and
         # never the close of the day it trades on.
         if i > 0 and date in rebalance_dates:
-            targets = strategy.select(closes.iloc[:i])
+            history = closes.iloc[:i]
+            if universe_selector is not None:
+                eligible = universe_selector.select(history, turnovers.iloc[:i])
+                history = history[eligible] if eligible else history.iloc[:, :0]
+            targets = strategy.select(history)
             if targets:
                 cash = _execute_rebalance(
                     targets, opens.iloc[i], holdings, cash,

@@ -12,7 +12,10 @@ from adjust.store import DEFAULT_DB_PATH, build_and_store, read_prices
 from engine.backtest import run_backtest
 from ingest.bhavcopy import BhavcopyNotAvailable, fetch_bhavcopy
 from ingest.history import build_history, save_history
+from analysis.data_quality import quarantined_symbols
+from engine.portfolio_backtest import run_portfolio_backtest
 from metrics.performance import summarize
+from strategy.portfolio import EqualWeightAll, PointInTimeUniverse, TopNMomentum
 from strategy.momentum import Momentum
 from strategy.moving_average import MovingAverageCrossover
 
@@ -195,6 +198,69 @@ def backtest(
     typer.echo()
     typer.echo(f"Round-trip trades: {strategy_summary.n_round_trips}  Win rate: {_fmt_rate(strategy_summary.win_rate)}")
     typer.echo("[a mechanical rule's backtest result -- not investment advice]")
+
+
+@app.command(name="portfolio")
+def portfolio(
+    top_n: int = typer.Option(20, help="How many stocks to hold"),
+    lookback: int = typer.Option(252, help="Momentum lookback in trading days (252 = 12 months)"),
+    universe: int = typer.Option(100, help="Size of the point-in-time liquid universe"),
+    cash: float = typer.Option(1_000_000.0, help="Starting capital (INR)"),
+    start: dt.datetime = typer.Option("2015-01-01", formats=["%Y-%m-%d"]),
+    end: dt.datetime = typer.Option("2025-09-05", formats=["%Y-%m-%d"]),
+):
+    """Backtest a monthly-rebalanced momentum portfolio against a matched
+    equal-weight benchmark: same universe, same rebalance dates, same costs,
+    so the only difference is the selection rule.
+
+    The universe is chosen point-in-time (ranked by turnover using only data
+    available on each rebalance date), so there is no look-ahead and no
+    survivorship bias. Symbols whose adjusted series contains an unexplained
+    price discontinuity are quarantined and excluded."""
+    bad = quarantined_symbols()
+    prices = read_prices(start=start.date(), end=end.date())
+    if prices.empty:
+        typer.echo("No stored data. Run `store` (or scripts/pull_history.py) first.")
+        raise typer.Exit(code=1)
+
+    prices = prices[~prices["symbol"].isin(bad)]
+    liquidity = prices.groupby("symbol")["turnover"].mean()
+    prices = prices[prices["symbol"].isin(liquidity[liquidity > 5_000_000].index)]
+
+    typer.echo(
+        f"{prices['symbol'].nunique()} candidate symbols, {prices['date'].nunique()} trading days, "
+        f"{len(bad)} quarantined for data quality"
+    )
+
+    def _run(strategy):
+        selector = PointInTimeUniverse(top_n=universe, lookback_days=252, min_history_days=200)
+        result = run_portfolio_backtest(
+            prices, strategy, initial_cash=cash, universe_selector=selector
+        )
+        if not result.trades:
+            return None
+        first = min(t.date for t in result.trades)
+        curve = result.equity_curve[result.equity_curve["date"] >= first].reset_index(drop=True)
+        curve["equity"] = curve["equity"] / curve["equity"].iloc[0] * cash
+        return summarize(curve, []), len(result.trades)
+
+    bench = _run(EqualWeightAll())
+    momentum = _run(TopNMomentum(n=top_n, lookback_days=lookback))
+    if bench is None or momentum is None:
+        typer.echo("Not enough history to trade. Try a wider date range.")
+        raise typer.Exit(code=1)
+
+    typer.echo()
+    typer.echo(f"{'':22}{'Momentum':>14}{'Benchmark':>14}")
+    for label, key in [("CAGR", "cagr"), ("Sharpe", "sharpe"), ("Max drawdown", "max_drawdown")]:
+        m, b = getattr(momentum[0], key), getattr(bench[0], key)
+        if key == "sharpe":
+            typer.echo(f"{label:22}{m:>14.2f}{b:>14.2f}")
+        else:
+            typer.echo(f"{label:22}{m * 100:>13.1f}%{b * 100:>13.1f}%")
+    typer.echo(f"{'Trades':22}{momentum[1]:>14}{bench[1]:>14}")
+    typer.echo()
+    typer.echo("[backtest of a mechanical rule, not investment advice]")
 
 
 if __name__ == "__main__":
