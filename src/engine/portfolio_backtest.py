@@ -16,6 +16,7 @@ makes a benchmark comparison meaningful.
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -23,7 +24,6 @@ from costs.fees import CostModel
 from costs.slippage import SlippageModel
 from engine.backtest import Trade, max_affordable_quantity
 from strategy.portfolio import PortfolioStrategy
-from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

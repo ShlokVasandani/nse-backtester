@@ -27,13 +27,13 @@ from ingest.bhavcopy import (
     download_bhavcopy,
     parse_bhavcopy,
 )
+from ingest.bhavcopy import raw_path as modern_raw_path
 from ingest.bhavcopy_legacy import (
     LEGACY_EARLIEST_DATE,
     download_legacy_bhavcopy,
     legacy_raw_path,
     parse_legacy_bhavcopy,
 )
-from ingest.bhavcopy import raw_path as modern_raw_path
 
 # Oldest date any archive covers.
 EARLIEST_COVERED_DATE = LEGACY_EARLIEST_DATE
@@ -77,8 +77,8 @@ def fetch_for_date(date: dt.date, raw_dir: Path, *, force: bool = False) -> pd.D
 
 
 __all__ = [
-    "BhavcopyNotAvailable",
     "EARLIEST_COVERED_DATE",
+    "BhavcopyNotAvailable",
     "download_for_date",
     "fetch_for_date",
     "parse_auto",

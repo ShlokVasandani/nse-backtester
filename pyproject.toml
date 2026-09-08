@@ -25,3 +25,9 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 src = ["src"]
+
+[tool.ruff.lint]
+# DTZ007: strptime without %z. We parse calendar DATES off exchange files
+# (a bhavcopy's "28-DEC-2023"), never instants, so attaching a timezone
+# would add noise rather than correctness.
+ignore = ["DTZ007"]

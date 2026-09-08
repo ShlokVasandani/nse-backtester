@@ -64,8 +64,8 @@ def test_parse_legacy_early_variant_without_trades_or_isin(tmp_path: Path):
 
 
 def test_legacy_and_modern_parsers_emit_the_same_columns(tmp_path: Path):
-    from tests.test_ingest_bhavcopy import SAMPLE_CSV
     from ingest.bhavcopy import parse_bhavcopy
+    from tests.test_ingest_bhavcopy import SAMPLE_CSV
 
     legacy = parse_legacy_bhavcopy(_zip_with(tmp_path, "cm28DEC2023bhav", MODERN_LEGACY_CSV))
     modern_zip = _zip_with(tmp_path, "BhavCopy_NSE_CM_0_0_0_20250905_F_0000.csv", SAMPLE_CSV)

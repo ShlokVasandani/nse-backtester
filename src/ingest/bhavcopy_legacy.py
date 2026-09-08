@@ -25,7 +25,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from ingest.bhavcopy import HEADERS, BhavcopyNotAvailable, EQUITY_SERIES
+from ingest.bhavcopy import EQUITY_SERIES, HEADERS, BhavcopyNotAvailable
 
 LEGACY_BHAVCOPY_URL = (
     "https://nsearchives.nseindia.com/content/historical/EQUITIES/"

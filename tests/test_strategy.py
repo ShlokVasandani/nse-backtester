@@ -3,8 +3,8 @@ import datetime as dt
 import pandas as pd
 import pytest
 
-from strategy.moving_average import MovingAverageCrossover
 from strategy.momentum import Momentum
+from strategy.moving_average import MovingAverageCrossover
 
 CLOSES = [1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1]
 

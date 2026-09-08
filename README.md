@@ -65,18 +65,39 @@ python cli.py portfolio --top-n 20 --cash 1000000     # portfolio momentum vs be
 | `src/analysis/` | Parameter sweeps, train/test validation, data-quality gates |
 | `scripts/` | Long-running data pulls |
 
-## Findings so far
+## Findings
 
-Measured over ~9.4 active years (2015–2025), 100-stock point-in-time universe,
-monthly rebalance, real costs, against a **matched** equal-weight benchmark
-(same universe, same rebalance dates, same costs — only the selection rule
-differs):
+All results use a 100-stock **point-in-time** universe (ranked by turnover
+using only data available on each rebalance date, so no look-ahead and no
+survivorship), monthly rebalance, real costs, and a **matched** equal-weight
+benchmark — same universe, same rebalance dates, same costs, so the only
+difference is the selection rule.
+
+**Full period, 2015–2025 (~9.4 active years):**
 
 | | Momentum (top 20, 12mo) | Benchmark |
 |---|---|---|
 | CAGR | 14.2% | 8.1% |
 | Sharpe | 0.69 | 0.52 |
 | Max drawdown | −49.5% | −57.8% |
+
+**Out-of-sample check.** Parameters were chosen using *only* 2015–2021
+(where `top30` / 12-month was best, by a modest +2.4pp), then run untouched
+on 2022–2025:
+
+| 2022–2025 (never fitted) | CAGR | Sharpe | Max DD |
+|---|---|---|---|
+| top30, 12mo — chosen on train | 36.7% | 1.44 | −31.0% |
+| Benchmark | 14.9% | 0.93 | −23.1% |
+
+It passes. But note the edge was +2.4pp in the training era and +21.8pp in
+the test era — the *direction* holds up out-of-sample, the *magnitude* is
+wildly regime-dependent. Expecting 36% forward would be naive.
+
+**After tax** (`src/costs/taxes.py`): monthly rebalancing realises gains
+short-term (20%) while buy-and-hold defers to long-term (12.5%) and
+compounds untaxed meanwhile. Over 9.4 years that narrows the edge from
+1.68x to **1.41x** — it survives, but ~40% of it goes to turnover.
 
 Things that turned out to matter more than the headline number:
 
